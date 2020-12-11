@@ -13,7 +13,7 @@ import time, sys
 # Global Variable
 #global ad_data
 #allLength, LogicalDst, LogicalSrc, PhysicalDst, PhysicalSrc, IsUrgent, urgentLevel
-ad_data = "09 08 FF 06 02 01 03 01 01 01"
+ad_data = "07 06 FF  04 01 01 01 01"
 #nodes -> addr1, addr2, addr3
 # addrs = ["b8:27:eb:b8:f2:02", "b8:27:eb:5b:fc:b2", "b8:27:eb:9c:e4:26"]
 #A node1
@@ -103,7 +103,7 @@ def Scanning():
                     # so we make new packet
                     if check_data(recv_data):
                         global ad_data
-                        ad_data = make_new_data(recv_data)
+                        ad_data = make_new_packet(recv_data)
                         print("new data : %s" % ad_data)
 
         count = count + 1
@@ -118,66 +118,85 @@ def split_data(data):
     return [data[i:i+2] for i in range(0, len(data), 2)]
 
 def check_data(recv_data):
-    all_length = len(recv_data)
-    length = recv_data[0]
+    neighbor = check_myNeighborTable(myAddr)  # Get my neighbor table
+    all_data_len = len(recv_data)  # All Data Length (include Data Length byte)
+    pure_data_len = recv_data[0]  # pure Data Length (except Data Length byte)
 
-    if all_length >= 7: # whole recv_data must be 7 or more
-        print("all length good!")
+    if all_data_len == 5:  # whole recv_data_length must be 5 (is always 5)
+        print("all data length good!")
 
-        if int(length) >= 6:  # if length is more than 6, check logical destination
-            print("length good!")
+        if int(pure_data_len) == 4:  # pure_data_length is the length except Data Length byte, so it must be 4
+            print("pure data length good!")
 
-            l_dst = recv_data[1]
-            if l_dst == myAddr:  # if l_dst == myaddr, check physical dst
-                print("l_dst good!")
-
-                p_dst = recv_data[3]
-                if p_dst == myAddr:  # if p_dst = myaddr, transfer complete
-                    print("this data is mine!")
-                    print(recv_data)
-                    return True
-                else:  # if p_dst != myaddr, make new packet and send it
-                    return True
-
-            else:
+            l_src = recv_data[2]
+            if l_src == myAddr:  # if l_src == myAddr, this data throws away because this is data I sent
                 return False
+            else:  # this is not data I sent
+                print("this packet is not packet I sent")
+
+                p_src = recv_data[1]
+                if is_neighbor(p_src, neighbor):  # if p_src is my neighbor, check l_src again
+                    print("p_src is my neighbor")
+                    if is_neighbor(l_src, neighbor):  # if both p_src and l_src are my neighbor, check p_src and l_src are the same
+                        print("both p_src and l_src are my neighbor")
+                        if p_src == l_src:  # if p_src and l_src are the same, this is the data I can receive
+                            print("p_src and l_src are the same")
+                            return True
+                        else:  # not the same, this is duplicated data. So throw away
+                            return False
+                    else:  # if p_src is my neighbor and l_src is not my neighbor, this is the data I can receive
+                        print("p_src is my neighbor and l_src is not my neighbor")
+                        return True
+
+                else:  # this data is not from my neighbor
+                    return False
         else:
             return False
     else:
         return False
 
 
-def make_new_data(recv_data):
-    new_data = recv_data[:]
+def make_new_packet(recv_data):
+    new_data = recv_data[:]  # copy data to make new data
 
-    #change logical src
-    new_data[2] = myAddr.encode("utf-8").decode("utf-8")
-    #check routing table and find next logical dst
-    new_data[1] = check_routingtable(recv_data[2]).encode("utf-8").decode("utf-8")
+    # only change physical src, need not change logical src
+    new_data[1] = myAddr.encode("utf-8").decode("utf-8")
 
-    #check isUrgent is true or not
-    #if isUrgent is true, urgentLevel + 1
-    #if isUrgent is false, no increase
-    if recv_data[5]:
-        new_data[6] = "0" + str((int(recv_data[6]) + 1)).encode("utf-8").decode("utf-8") #convert to string
-        print("new urgent level : %s" % new_data[6])
+    # check isUrgent is true or not
+    # if isUrgent is true, urgentLevel + 1
+    # if isUrgent is false, no increase
+    if recv_data[3]:  # recv_data[3] is isUrgent byte
+        new_level = (int(recv_data[4]) + 1)
+        if new_level >= 10:  # if new_level is more than 10, do not need attach "0"
+            new_data[4] = str(new_level).encode("utf-8").decode("utf-8")
+        else: # if new_level is not more than 10, must attach "0"
+            new_data[4] = "0" + str((int(recv_data[4]) + 1)).encode("utf-8").decode("utf-8")  # convert to string
+
+        print("new urgent level : %s" % new_data[4])
 
 
-    new_data = "09 08 FF " + ' '.join(new_data)
+    new_packet = "07 06 FF " + ' '.join(new_data)
 
-    return new_data
+    return new_packet
 
-def check_routingtable(l_src):
-    if myAddr == "01":
-        routingtable = ["02"]
-    elif myAddr == "02":
-        routingtable = ["01", "03"]  #in close order
-    elif myAddr == "03":
-        routingtable = ["02", "01"]
 
-    next_dst_index = routingtable.index(l_src) + 1
+def is_neighbor(src, neighbor):
+    if src in neighbor:
+        return True
+    else:
+        return False
 
-    return routingtable[next_dst_index]
+
+def check_myNeighborTable(addr):
+    if addr == "01":
+        neighborTable = ["02"]
+    elif addr == "02":
+        neighborTable = ["01", "03"]
+    elif addr == "03":
+        neighborTable = ["02"]
+
+    return neighborTable
+
 
 def Main():
 
